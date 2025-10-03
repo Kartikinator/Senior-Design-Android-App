@@ -14,6 +14,11 @@ fun provideInterpolator(context: Context): FrameInterpolator {
     }
 }
 
+// Exposed for real-time player to use the same DLC loading logic
+fun provideInterpolatorDlcUri(context: Context): Uri? {
+    return copyDlcFromAssetsIfPresent(context.applicationContext, DEFAULT_DLC_ASSET_NAME)
+}
+
 private const val DEFAULT_DLC_ASSET_NAME = "rife_3_cached.dlc"
 
 private fun copyDlcFromAssetsIfPresent(appContext: Context, assetName: String): Uri? {

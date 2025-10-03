@@ -13,3 +13,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Video output and analysis
+output_videos/
+analysis_frames/
+logs/
+*.zip

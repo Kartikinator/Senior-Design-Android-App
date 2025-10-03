@@ -14,7 +14,8 @@ import kotlin.math.roundToInt
 // SNPE Java API (provided by your AAR in app/libs)
 import com.qualcomm.qti.snpe.SNPE
 import com.qualcomm.qti.snpe.NeuralNetwork
-import com.qualcomm.qti.snpe.ITensor
+import com.qualcomm.qti.snpe.FloatTensor
+import com.qualcomm.qti.snpe.UserBufferTensor
 
 class SnpeFrameInterpolator(
     private val appContext: Context,
@@ -34,17 +35,12 @@ class SnpeFrameInterpolator(
         network?.let { return true }
         val modelFile = dlcUri?.path?.let { File(it) } ?: return false
         return try {
-            val builder = SNPE.NeuralNetwork.Builder(appContext)
+            val nn = SNPE.NeuralNetworkBuilder(appContext.applicationContext as android.app.Application)
                 .setModel(modelFile)
-                .setRuntimeOrder(
-                    NeuralNetwork.Runtime.DSP,
-                    NeuralNetwork.Runtime.CPU
-                )
-                .setPerformanceProfile(NeuralNetwork.PerformanceProfile.HIGH_PERFORMANCE)
-                .setInitCacheEnabled(true)
-                .setInitCacheDir(appContext.cacheDir)
+                .setRuntimeOrder(com.qualcomm.qti.snpe.NeuralNetwork.Runtime.DSP)
+                .setPerformanceProfile(com.qualcomm.qti.snpe.NeuralNetwork.PerformanceProfile.HIGH_PERFORMANCE)
+                .build()
 
-            val nn = builder.build()
             network = nn
             Log.d("SNPE", "Network built. Runtime order: DSP -> CPU")
             true
@@ -81,26 +77,22 @@ class SnpeFrameInterpolator(
         return out
     }
 
-    private fun writeFloatToTensor(tensor: ITensor, data: FloatArray) {
-        val bb = ByteBuffer.allocateDirect(data.size * 4).order(ByteOrder.nativeOrder())
-        bb.asFloatBuffer().put(data)
-        tensor.write(bb)
+    private fun writeFloatToTensor(tensor: FloatTensor, data: FloatArray) {
+        tensor.write(data, 0, data.size)
     }
 
-    private fun readTensorToBitmap(tensor: ITensor, w: Int, h: Int): Bitmap {
+    private fun readTensorToBitmap(tensor: FloatTensor, w: Int, h: Int): Bitmap {
         val num = w * h * 3
-        val bb = ByteBuffer.allocateDirect(num * 4).order(ByteOrder.nativeOrder())
-        tensor.read(bb)
-        val fbuf = bb.asFloatBuffer()
+        val data = FloatArray(num)
+        tensor.read(data, 0, num)
         val pixels = IntArray(w * h)
         var pi = 0
-        var i = 0
-        while (i < w * h) {
-            val r = (fbuf.get().coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
-            val g = (fbuf.get().coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
-            val b = (fbuf.get().coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+        var di = 0
+        while (pi < w * h) {
+            val r = (data[di++].coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+            val g = (data[di++].coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+            val b = (data[di++].coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
             pixels[pi++] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
-            i++
         }
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         bmp.setPixels(pixels, 0, w, 0, 0, w, h)
@@ -118,20 +110,19 @@ class SnpeFrameInterpolator(
             val aData = bitmapToNHWCFloat(aBmp)
             val bData = bitmapToNHWCFloat(bBmp)
 
-            val in0: ITensor = nn.createTensor(inputName0)
-            val in1: ITensor = nn.createTensor(inputName1)
+            val in0 = nn.createFloatTensor(expectedHeight, expectedWidth, 3)
+            val in1 = nn.createFloatTensor(expectedHeight, expectedWidth, 3)
             writeFloatToTensor(in0, aData)
             writeFloatToTensor(in1, bData)
 
-            val out: ITensor = nn.createTensor(outputName)
+            val out = nn.createFloatTensor(expectedHeight, expectedWidth, 3)
 
-            val inputs = mapOf(
-                inputName0 to in0,
-                inputName1 to in1
-            )
-            val outputs = mutableMapOf(
-                outputName to out
-            )
+            val inputs: MutableMap<String, UserBufferTensor> = mutableMapOf()
+            inputs[inputName0] = in0 as UserBufferTensor
+            inputs[inputName1] = in1 as UserBufferTensor
+            
+            val outputs: MutableMap<String, UserBufferTensor> = mutableMapOf()
+            outputs[outputName] = out as UserBufferTensor
 
             nn.execute(inputs, outputs)
             Log.d("SNPE", "Inference done (attempted DSP, may fallback to CPU)")
