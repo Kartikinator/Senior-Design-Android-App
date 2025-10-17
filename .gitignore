@@ -25,3 +25,8 @@ logs/
 # Sensitive or local files
 *.csv
 *.log
+
+# Large model files
+*.tflite
+*.dlc
+!rife/src/qidk/assets/rife_3_cached.dlc
