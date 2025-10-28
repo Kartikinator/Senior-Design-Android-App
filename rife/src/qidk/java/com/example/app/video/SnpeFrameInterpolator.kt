@@ -31,27 +31,103 @@ class SnpeFrameInterpolator(
     private val expectedWidth = 1280
     private val expectedHeight = 720
 
+    init {
+        logDeviceInfo()
+    }
+
+    private fun logDeviceInfo() {
+        try {
+            Log.i("SNPE", "=== Device Information ===")
+            Log.i("SNPE", "Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+            Log.i("SNPE", "Board: ${android.os.Build.BOARD}")
+            Log.i("SNPE", "Hardware: ${android.os.Build.HARDWARE}")
+            Log.i("SNPE", "Android version: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
+            Log.i("SNPE", "SoC: ${android.os.Build.SOC_MODEL}")
+            Log.i("SNPE", "===========================")
+        } catch (t: Throwable) {
+            Log.w("SNPE", "Could not log device info: ${t.message}")
+        }
+    }
+
     private fun ensureNetwork(): Boolean {
         network?.let { return true }
-        val modelFile = dlcUri?.path?.let { File(it) } ?: return false
+        val modelFile = dlcUri?.path?.let { File(it) } ?: run {
+            Log.e("SNPE", "Model file URI is null or invalid")
+            return false
+        }
+
+        if (!modelFile.exists()) {
+            Log.e("SNPE", "Model file does not exist: ${modelFile.absolutePath}")
+            return false
+        }
+
+        Log.i("SNPE", "=== SNPE Initialization ===")
+        Log.i("SNPE", "Model file: ${modelFile.absolutePath}")
+        Log.i("SNPE", "Model size: ${modelFile.length()} bytes")
+
         return try {
+            // Check runtime availability
+            Log.i("SNPE", "Checking runtime availability...")
+            val dspAvailable = SNPE.isRuntimeAvailable(NeuralNetwork.Runtime.DSP)
+            val gpuAvailable = SNPE.isRuntimeAvailable(NeuralNetwork.Runtime.GPU)
+            val cpuAvailable = SNPE.isRuntimeAvailable(NeuralNetwork.Runtime.CPU)
+
+            Log.i("SNPE", "DSP/NPU available: $dspAvailable")
+            Log.i("SNPE", "GPU available: $gpuAvailable")
+            Log.i("SNPE", "CPU available: $cpuAvailable")
+
+            if (!dspAvailable) {
+                Log.w("SNPE", "⚠ DSP/NPU runtime NOT available on this device!")
+                Log.w("SNPE", "Possible reasons:")
+                Log.w("SNPE", "  1. Device doesn't have Hexagon DSP")
+                Log.w("SNPE", "  2. Missing Hexagon drivers/firmware")
+                Log.w("SNPE", "  3. Android version incompatibility")
+                Log.w("SNPE", "  4. Model not quantized for DSP")
+            }
+
+            Log.i("SNPE", "Building network with runtime order: DSP -> GPU -> CPU")
             val nn = SNPE.NeuralNetworkBuilder(appContext.applicationContext as android.app.Application)
                 .setModel(modelFile)
-                .setRuntimeOrder(com.qualcomm.qti.snpe.NeuralNetwork.Runtime.DSP)
-                .setPerformanceProfile(com.qualcomm.qti.snpe.NeuralNetwork.PerformanceProfile.HIGH_PERFORMANCE)
+                .setRuntimeOrder(
+                    NeuralNetwork.Runtime.DSP,
+                    NeuralNetwork.Runtime.GPU,
+                    NeuralNetwork.Runtime.CPU
+                )
+                .setPerformanceProfile(NeuralNetwork.PerformanceProfile.HIGH_PERFORMANCE)
+                .setUseUserSuppliedBuffers(false)
+                .setCpuFallbackEnabled(true)
+                .setUnsignedPD(false)
                 .build()
 
             network = nn
             val runtime = nn.runtime
-            Log.d("SNPE", "Network built successfully. Active runtime: $runtime")
-            if (runtime == NeuralNetwork.Runtime.DSP) {
-                Log.d("SNPE", "✓ Running on NPU/DSP (Hardware Accelerated)")
-            } else {
-                Log.w("SNPE", "⚠ NPU/DSP not available, using fallback: $runtime")
+            Log.i("SNPE", "=== Network Built Successfully ===")
+            Log.i("SNPE", "Active runtime: $runtime")
+
+            when (runtime) {
+                NeuralNetwork.Runtime.DSP -> {
+                    Log.i("SNPE", "✓✓✓ SUCCESS: Running on NPU/DSP (Hardware Accelerated) ✓✓✓")
+                }
+                NeuralNetwork.Runtime.GPU -> {
+                    Log.w("SNPE", "⚠ Running on GPU (not NPU)")
+                    Log.w("SNPE", "DSP may not support this model's operations")
+                }
+                NeuralNetwork.Runtime.CPU -> {
+                    Log.e("SNPE", "⚠⚠⚠ WARNING: Fell back to CPU ⚠⚠⚠")
+                    Log.e("SNPE", "This means:")
+                    Log.e("SNPE", "  • NPU/DSP is not available OR")
+                    Log.e("SNPE", "  • Model has unsupported operations for DSP")
+                    Log.e("SNPE", "  • Model may not be properly quantized for DSP")
+                }
+                else -> {
+                    Log.w("SNPE", "Unknown runtime: $runtime")
+                }
             }
             true
         } catch (t: Throwable) {
-            Log.w("SNPE", "Failed to build network on DSP; falling back. ${t.message}")
+            Log.e("SNPE", "=== Network Build FAILED ===")
+            Log.e("SNPE", "Error: ${t.message}")
+            Log.e("SNPE", "Stack trace: ${t.stackTraceToString()}")
             network = null
             false
         }
