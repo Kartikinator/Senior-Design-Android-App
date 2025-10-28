@@ -90,6 +90,4 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    // SNPE runtime AAR (added globally so both flavors compile)
-    implementation(files("libs/snpe-release.aar"))
 }
