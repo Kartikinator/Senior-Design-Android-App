@@ -42,6 +42,10 @@ class MockFrameInterpolator : FrameInterpolator {
         result.setPixels(outPixels, 0, width, 0, 0, width, height)
         result
     }
+
+    fun getCurrentRuntime(): String {
+        return "CPU (Mock)"
+    }
 }
 
 

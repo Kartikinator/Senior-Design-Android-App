@@ -42,7 +42,13 @@ class SnpeFrameInterpolator(
                 .build()
 
             network = nn
-            Log.d("SNPE", "Network built. Runtime order: DSP -> CPU")
+            val runtime = nn.runtime
+            Log.d("SNPE", "Network built successfully. Active runtime: $runtime")
+            if (runtime == NeuralNetwork.Runtime.DSP) {
+                Log.d("SNPE", "✓ Running on NPU/DSP (Hardware Accelerated)")
+            } else {
+                Log.w("SNPE", "⚠ NPU/DSP not available, using fallback: $runtime")
+            }
             true
         } catch (t: Throwable) {
             Log.w("SNPE", "Failed to build network on DSP; falling back. ${t.message}")
@@ -120,7 +126,7 @@ class SnpeFrameInterpolator(
             val inputs: MutableMap<String, UserBufferTensor> = mutableMapOf()
             inputs[inputName0] = in0 as UserBufferTensor
             inputs[inputName1] = in1 as UserBufferTensor
-            
+
             val outputs: MutableMap<String, UserBufferTensor> = mutableMapOf()
             outputs[outputName] = out as UserBufferTensor
 
@@ -132,6 +138,21 @@ class SnpeFrameInterpolator(
             Log.w("SNPE", "Inference failed on SNPE; falling back to Mock. ${t.message}")
             MockFrameInterpolator().interpolateFrame(previousFrame, nextFrame)
         }
+    }
+
+    fun getCurrentRuntime(): String {
+        val runtime = network?.runtime
+        return when (runtime) {
+            NeuralNetwork.Runtime.DSP -> "NPU (DSP/HTP)"
+            NeuralNetwork.Runtime.GPU -> "GPU"
+            NeuralNetwork.Runtime.CPU -> "CPU"
+            NeuralNetwork.Runtime.GPU_FLOAT16 -> "GPU (FP16)"
+            else -> "Not initialized"
+        }
+    }
+
+    fun isUsingNPU(): Boolean {
+        return network?.runtime == NeuralNetwork.Runtime.DSP
     }
 }
 
