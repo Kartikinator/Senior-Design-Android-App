@@ -80,6 +80,8 @@ dependencies {
     // Prefer local AAR if provided (due to FFmpegKit artifacts being retired)
     implementation(files("libs/ffmpeg-kit-audio-6.0-2.aar"))
     implementation("com.arthenica:smart-exception-java:0.2.1")
+    implementation(files("libs/snpe-release.aar"))
+    implementation(files("libs/platform-validator.aar"))
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
