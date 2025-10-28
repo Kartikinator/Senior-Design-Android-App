@@ -5,7 +5,10 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,6 +41,7 @@ fun MainScreen(playSimultaneously: MutableState<Boolean>) {
     val interpolator = remember { provideInterpolator(context) }
 
     val runtimeText = remember { mutableStateOf("Not initialized") }
+    val diagnosticLogs = remember { mutableStateOf("") }
 
     val topVideoUri = remember { mutableStateOf<Uri?>(null) }
     val bottomVideoUri = remember { mutableStateOf<Uri?>(null) }
@@ -114,6 +118,14 @@ fun MainScreen(playSimultaneously: MutableState<Boolean>) {
                 // Update runtime display right after creating the engine/interpolator (safe)
                 runtimeText.value = resolveRuntimeFromInterpolator(interpolator)
 
+                // Get diagnostic logs from interpolator
+                try {
+                    val method = interpolator.javaClass.getMethod("getDiagnosticLogs")
+                    diagnosticLogs.value = method.invoke(interpolator)?.toString() ?: "No logs available"
+                } catch (_: Exception) {
+                    diagnosticLogs.value = "Could not retrieve diagnostic logs"
+                }
+
                 var progressJob: Job? = null
                 progressJob = scope.launch(Dispatchers.IO) {
                     engine.progress.collectLatest { p -> progress.floatValue = p }
@@ -134,6 +146,37 @@ fun MainScreen(playSimultaneously: MutableState<Boolean>) {
         Spacer(modifier = Modifier.height(8.dp))
         // Display which chip/runtime is currently being used
         Text("Runtime: ${chipLabelFromRuntime(runtimeText.value)}", style = MaterialTheme.typography.bodyMedium)
+
+        // Display diagnostic logs
+        if (diagnosticLogs.value.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        "Diagnostic Logs:",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Text(
+                        diagnosticLogs.value,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                        ),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                    )
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
         Text("Top (original)", style = MaterialTheme.typography.titleMedium)

@@ -46,6 +46,10 @@ class MockFrameInterpolator : FrameInterpolator {
     fun getCurrentRuntime(): String {
         return "CPU (Mock)"
     }
+
+    fun getDiagnosticLogs(): String {
+        return "Mock interpolator - no SNPE diagnostics available.\nThis is a placeholder implementation for non-QIDK builds."
+    }
 }
 
 
