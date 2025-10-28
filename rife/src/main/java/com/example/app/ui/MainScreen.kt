@@ -1,6 +1,5 @@
 package com.example.app.ui
 
-import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -14,12 +13,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -37,6 +34,10 @@ import kotlinx.coroutines.launch
 fun MainScreen(playSimultaneously: MutableState<Boolean>) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    val interpolator = remember { provideInterpolator(context) }
+
+    val runtimeText = remember { mutableStateOf("Not initialized") }
 
     val topVideoUri = remember { mutableStateOf<Uri?>(null) }
     val bottomVideoUri = remember { mutableStateOf<Uri?>(null) }
@@ -59,6 +60,40 @@ fun MainScreen(playSimultaneously: MutableState<Boolean>) {
         }
     }
 
+    fun chipLabelFromRuntime(runtime: String): String {
+        return when {
+            runtime.contains("DSP", ignoreCase = true) -> "NPU / DSP"
+            runtime.contains("GPU", ignoreCase = true) -> "GPU"
+            runtime.contains("CPU", ignoreCase = true) -> "CPU"
+            runtime.contains("Not initialized", ignoreCase = true) -> "Not initialized"
+            else -> runtime
+        }
+    }
+
+    // Helper to safely extract runtime info from the interpolator using reflection
+    fun resolveRuntimeFromInterpolator(obj: Any?): String {
+        if (obj == null) return "Not initialized"
+        return try {
+            val cls = obj.javaClass
+            // Try getCurrentRuntime()
+            try {
+                val m = cls.getMethod("getCurrentRuntime")
+                m.invoke(obj)?.toString() ?: "Not initialized"
+            } catch (_: NoSuchMethodException) {
+                // Try isUsingNPU()
+                try {
+                    val m2 = cls.getMethod("isUsingNPU")
+                    val b = m2.invoke(obj) as? Boolean
+                    if (b == true) "NPU / DSP" else "CPU/GPU"
+                } catch (_: NoSuchMethodException) {
+                    "Not initialized"
+                }
+            }
+        } catch (_: Exception) {
+            "Not initialized"
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Top) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = { pickVideo.launch(arrayOf("video/*")) }) {
@@ -69,10 +104,16 @@ fun MainScreen(playSimultaneously: MutableState<Boolean>) {
                 avgMs.value = null
                 bottomVideoUri.value = null
                 progress.floatValue = 0f
+
+                // Reuse the interpolator created above when building the engine
                 val engine = VideoInterpolationEngine(
                     context = context,
-                    interpolator = provideInterpolator(context)
+                    interpolator = interpolator
                 )
+
+                // Update runtime display right after creating the engine/interpolator (safe)
+                runtimeText.value = resolveRuntimeFromInterpolator(interpolator)
+
                 var progressJob: Job? = null
                 progressJob = scope.launch(Dispatchers.IO) {
                     engine.progress.collectLatest { p -> progress.floatValue = p }
@@ -89,6 +130,10 @@ fun MainScreen(playSimultaneously: MutableState<Boolean>) {
         if (progress.floatValue > 0f && progress.floatValue < 1f) {
             LinearProgressIndicator(progress = progress.floatValue, modifier = Modifier.padding(top = 8.dp))
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        // Display which chip/runtime is currently being used
+        Text("Runtime: ${chipLabelFromRuntime(runtimeText.value)}", style = MaterialTheme.typography.bodyMedium)
 
         Spacer(modifier = Modifier.height(12.dp))
         Text("Top (original)", style = MaterialTheme.typography.titleMedium)
@@ -111,8 +156,8 @@ fun MainScreen(playSimultaneously: MutableState<Boolean>) {
             if (tp != null && bp != null) {
                 tp.seekTo(0)
                 bp.seekTo(0)
-                tp.playWhenReady = true
-                bp.playWhenReady = true
+                tp.play()
+                bp.play()
             }
         }) {
             Text("Play both")
@@ -131,16 +176,20 @@ private fun VideoPlayer(
 
     LaunchedEffect(uriState.value) {
         val uri = uriState.value
+        // Release any existing player before creating a new one to avoid leaks/warnings.
+        playerState.value?.release()
+        playerState.value = null
+
         if (uri != null) {
             val exo = ExoPlayer.Builder(context).build()
             exo.setMediaItem(MediaItem.fromUri(uri))
             exo.prepare()
             if (autoPlay) {
-                exo.playWhenReady = true
+                exo.play()
             } else {
                 // Render the first frame so the view isn't black when paused
                 exo.seekTo(0)
-                exo.playWhenReady = false
+                exo.pause()
             }
             playerState.value = exo
         }
@@ -166,5 +215,3 @@ private fun VideoPlayer(
         modifier = modifier.fillMaxSize()
     )
 }
-
-
